@@ -10,7 +10,7 @@
 #include<string>
 #include<time.h>
 #include<semaphore.h>
-#define NUM_THREADS     10
+#define NUM_THREADS     20
 #define BUFF_SIZE       1000
 
 using namespace std;
@@ -200,7 +200,8 @@ void BFSparallelPthreads(int s)
                 }
         }
 	time_sum = time_sum/time_count;
-	cout << "Time by main thread = " << time_sum << endl;
+	cout << "Average time by main thread = " << time_sum << endl;
+	cout << "Total time by main thread = " << (time_sum*time_count) << endl;
 
 }
 void takeInput(char *s)
@@ -303,7 +304,8 @@ int main(int argc, char *argv[])
 		pthread_join(p[i], NULL);
 	}
 	
-	cout << "Time taken by threads: " << (global_time_th/NUM_THREADS) << endl;
+	cout << "Average time taken by one thread = " << (global_time_th/NUM_THREADS) << endl;
+	//cout << "Total time taken by all of the threads = " << global_time_th << endl;
         return 0;
 }
 
