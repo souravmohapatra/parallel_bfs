@@ -244,15 +244,17 @@ int main(int argc, char *argv[])
         pthread_cond_init(&cond, NULL);
         pthread_mutex_init(&thd, NULL);
         pthread_mutex_init(&update, NULL);
-
+	pthread_attr_t attr;
+	pthread_attr_init(&attr);
+	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
 
         takeInput(argv[1]);
         for(int i=0;i<NUM_THREADS;i++)
         {
-                pthread_create(&p[i], NULL, t_pool, (void *)i);
+                pthread_create(&p[i], &attr, t_pool, (void *)i);
         }
 	
-        cout << "Grapph of " << nv << " vertices, awaiting proceed input";
+        cout << "Perform BFS on a graph of " << nv << " vertices, awaiting proceed input";
         cin.ignore();
 	int s = 1;	
 	visited = new int[nv+1];
