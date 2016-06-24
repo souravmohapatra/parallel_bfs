@@ -12,7 +12,7 @@
 #include<semaphore.h>
 #define NUM_THREADS     10
 #define BUFF_SIZE       1000
-
+#define NUM_INNER_THREAD
 using namespace std;
 
 
@@ -43,7 +43,8 @@ void BFSserial(int s)
         while(!Q.empty())
         {
                 int u = Q.front();
-                //cout << u << "   ";cin.ignore();
+                cout << u << "   ";
+		//cin.ignore();
                 Q.pop_front();
                 for(list<int>::iterator i = adj[u].begin(); i!=adj[u].end(); ++i)
                 {
@@ -71,7 +72,7 @@ void BFSparallelOpenMP(int s)
         while(!Q.empty())
         {
                 int u = Q.front();
-                //cout << u << "   ";
+                cout << u << "   ";
                 Q.pop_front();
 		int size = adj[u].size();
 		j = adj[u].begin();
@@ -95,7 +96,16 @@ void BFSparallelOpenMP(int s)
         }
 }
 
-
+void workThread(void *x)
+{
+	int v = (int)x;
+	if(visited[v] == 0)
+	{
+		visited[v] = 1;
+		Q.push_back(v);
+	}
+	pthread_exit(NULL);
+}
 
 void t_pool(void *x)
 {
@@ -114,17 +124,21 @@ void t_pool(void *x)
                 {
                         int ver = *i;
                         list<int>::iterator j;
-                        for(j = adj[ver].begin(); j!=adj[ver].end(); ++j)
+			pthread_t q[adj[ver].size()];
+			pthread_attr_t attr;
+			pthread_attr_init(&attr);
+			pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
+                        int k=0;
+			for( j = adj[ver].begin();j!=adj[ver].end();++j, k++)
                         {
-                                int v = *j;
-                                if(visited[v] == 0)
-                                {
-                                        //pthread_mutex_lock(&update);
-                                        visited[v] = 1;
-                                        Q.push_back(v);
-                                        //pthread_mutex_unlock(&update);
-                                }
+				int vv = *j;
+				pthread_create(&q[k], &attr, workThread, (void *)vv);
                         }
+			
+			for(int k=0;k<adj[ver].size();k++)
+			{
+				pthread_join(q[k], NULL);
+			}
                 }
                 pthread_mutex_lock(&thd);
                 th_complete++;
@@ -157,7 +171,7 @@ void BFSparallelPthreads(int s)
                         int temp = Q.front();
                         th[th_count%(NUM_THREADS-1)].push_back(temp);
                         Q.pop_front();
-                        //cout << temp << "   ";
+                        cout << temp << "   ";
                         th_count++;
                 }
                 th_count = th_count%(NUM_THREADS-1);
