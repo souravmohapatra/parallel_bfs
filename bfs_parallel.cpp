@@ -10,7 +10,7 @@
 #include<string>
 #include<time.h>
 #include<semaphore.h>
-#define NUM_THREADS     	2
+#define NUM_THREADS     	12
 #define BUFF_SIZE       	1000
 #define NUM_INNER_THREADS 	4	
 using namespace std;
@@ -34,7 +34,7 @@ int s = 1;
 
 void display(int dis)
 {
-	cout << dis << "  ";
+//	cout << dis << "  ";
 }
 
 void BFSserial(int s)
@@ -86,9 +86,10 @@ void BFSparallelOpenMP(int s)
 		#pragma omp parallel for schedule(dynamic)
                 for(int k=0; k<size; k++)
                 {
+			
+                        vv = *j;
 			#pragma omp critical (iterate)
 			{
-                        	vv = *j;
 				++j;
 			}
 
@@ -104,32 +105,6 @@ void BFSparallelOpenMP(int s)
         }
 }
 
-void workThread(void *x)
-{
-	pthread_mutex_lock(&update_inner);
-		th_complete_inner++;
-	pthread_mutex_unlock(&update_inner);
-
-	int v = (int)x;
-	list<int>::iterator i = adj[v].begin();
-	for(;i!=adj[v].end();++i)
-	{
-		int vv = *i;
-		if(visited[vv] == 0)
-		{
-			visited[vv] = 1;
-			pthread_mutex_lock(&update);
-				Q.push_back(vv);
-			pthread_mutex_unlock(&update);
-		}
-	}
-	
-	pthread_mutex_lock(&update_inner);
-		th_complete_inner--;
-	pthread_mutex_unlock(&update_inner);
-	pthread_exit(NULL);
-}
-
 void t_pool(void *x)
 {
         int id = (int)x;
@@ -143,23 +118,22 @@ void t_pool(void *x)
                         }
                 pthread_mutex_unlock(&mux);
                 
-		pthread_t q[NUM_INNER_THREADS];
-		pthread_attr_t attr;
-		pthread_attr_init(&attr);
-		pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
-		
 		list<int>::iterator i;
-		int k = 0;
-		int innner_count = 0;
-		th_complete_inner = 0;
-
                 for(i = th[id].begin(); i!=th[id].end(); ++i)
                 {
                         int ver = *i;
-			pthread_create(&q[k%NUM_INNER_THREADS], &attr, workThread, (void *)ver);
-			k++;
-			while(th_complete_inner >= NUM_INNER_THREADS);
-			
+			list<int>::iterator j;
+			for(j = adj[ver].begin(); j != adj[ver].end(); ++j)
+			{
+				int vv = *j;	
+				if(visited[vv] == 0)
+				{
+					visited[vv] = 1;
+					pthread_mutex_lock(&update);
+					Q.push_back(vv);
+					pthread_mutex_unlock(&update);
+				}
+			}	
                 }
 
                 pthread_mutex_lock(&thd);
