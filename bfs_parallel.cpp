@@ -10,26 +10,32 @@
 #include<string>
 #include<time.h>
 #include<semaphore.h>
-#define NUM_THREADS     10
-#define BUFF_SIZE       1000
-#define NUM_INNER_THREAD
+#define NUM_THREADS     	2
+#define BUFF_SIZE       	1000
+#define NUM_INNER_THREADS 	4	
 using namespace std;
 
 
 int nv, ed;
 list<int> FQ;
-pthread_mutex_t mux, update;
-pthread_mutex_t thd;
-pthread_cond_t cond;
+pthread_mutex_t mux, update, mux_inner;
+pthread_mutex_t thd, update_inner;
+pthread_cond_t cond, inner;
+int th_complete_inner;
 list<int> Q;
-list<int> *th;
 list<int> *adj;
+list<int> *th;
 int *visited;
 int th_complete;
 int die = 1;
 struct timespec start, finish;
 double elapsed;
 int s = 1;
+
+void display(int dis)
+{
+	cout << dis << "  ";
+}
 
 void BFSserial(int s)
 {
@@ -43,7 +49,7 @@ void BFSserial(int s)
         while(!Q.empty())
         {
                 int u = Q.front();
-                cout << u << "   ";
+                display(u);
 		//cin.ignore();
                 Q.pop_front();
                 for(list<int>::iterator i = adj[u].begin(); i!=adj[u].end(); ++i)
@@ -72,24 +78,26 @@ void BFSparallelOpenMP(int s)
         while(!Q.empty())
         {
                 int u = Q.front();
-                cout << u << "   ";
+                display(u);
                 Q.pop_front();
 		int size = adj[u].size();
 		j = adj[u].begin();
-		#pragma omp parallel for schedule(dynamic, BUFF_SIZE)
+		int vv;
+		#pragma omp parallel for schedule(dynamic)
                 for(int k=0; k<size; k++)
                 {
-			//cout <<  "*  ";
-                        int vv = *j;
+			#pragma omp critical (iterate)
+			{
+                        	vv = *j;
+				++j;
+			}
 
-				if(visited[vv] == 0)
-                        	{
-                               		visited[vv] = 1;
-					#pragma omp critical (update)
+			if(visited[vv] == 0)
+                        {
+                       		visited[vv] = 1;
+				#pragma omp critical (update)
 					Q.push_back(vv);
-                        	}
-				#pragma omp critical (iterate)
-					++j;
+                       	}
 			
 
                 }
@@ -98,12 +106,27 @@ void BFSparallelOpenMP(int s)
 
 void workThread(void *x)
 {
+	pthread_mutex_lock(&update_inner);
+		th_complete_inner++;
+	pthread_mutex_unlock(&update_inner);
+
 	int v = (int)x;
-	if(visited[v] == 0)
+	list<int>::iterator i = adj[v].begin();
+	for(;i!=adj[v].end();++i)
 	{
-		visited[v] = 1;
-		Q.push_back(v);
+		int vv = *i;
+		if(visited[vv] == 0)
+		{
+			visited[vv] = 1;
+			pthread_mutex_lock(&update);
+				Q.push_back(vv);
+			pthread_mutex_unlock(&update);
+		}
 	}
+	
+	pthread_mutex_lock(&update_inner);
+		th_complete_inner--;
+	pthread_mutex_unlock(&update_inner);
 	pthread_exit(NULL);
 }
 
@@ -119,27 +142,26 @@ void t_pool(void *x)
                                 break;
                         }
                 pthread_mutex_unlock(&mux);
-                list<int>::iterator i;
+                
+		pthread_t q[NUM_INNER_THREADS];
+		pthread_attr_t attr;
+		pthread_attr_init(&attr);
+		pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
+		
+		list<int>::iterator i;
+		int k = 0;
+		int innner_count = 0;
+		th_complete_inner = 0;
+
                 for(i = th[id].begin(); i!=th[id].end(); ++i)
                 {
                         int ver = *i;
-                        list<int>::iterator j;
-			pthread_t q[adj[ver].size()];
-			pthread_attr_t attr;
-			pthread_attr_init(&attr);
-			pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
-                        int k=0;
-			for( j = adj[ver].begin();j!=adj[ver].end();++j, k++)
-                        {
-				int vv = *j;
-				pthread_create(&q[k], &attr, workThread, (void *)vv);
-                        }
+			pthread_create(&q[k%NUM_INNER_THREADS], &attr, workThread, (void *)ver);
+			k++;
+			while(th_complete_inner >= NUM_INNER_THREADS);
 			
-			for(int k=0;k<adj[ver].size();k++)
-			{
-				pthread_join(q[k], NULL);
-			}
                 }
+
                 pthread_mutex_lock(&thd);
                 th_complete++;
                 pthread_mutex_unlock(&thd);
@@ -171,7 +193,7 @@ void BFSparallelPthreads(int s)
                         int temp = Q.front();
                         th[th_count%(NUM_THREADS-1)].push_back(temp);
                         Q.pop_front();
-                        cout << temp << "   ";
+                        display(temp);
                         th_count++;
                 }
                 th_count = th_count%(NUM_THREADS-1);
@@ -255,6 +277,9 @@ int main(int argc, char *argv[])
         pthread_t p[NUM_THREADS];
         th = new list<int>[NUM_THREADS];
         pthread_mutex_init(&mux, NULL);
+        pthread_mutex_init(&mux_inner, NULL);
+        pthread_mutex_init(&update_inner, NULL);
+        pthread_cond_init(&inner, NULL);
         pthread_cond_init(&cond, NULL);
         pthread_mutex_init(&thd, NULL);
         pthread_mutex_init(&update, NULL);
