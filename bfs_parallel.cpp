@@ -10,19 +10,24 @@
 #include<string>
 #include<time.h>
 #include<semaphore.h>
-#define NUM_THREADS     	12
+#include "tbb/tbb.h"
+#define NUM_THREADS     	8
 #define BUFF_SIZE       	1000
 #define NUM_INNER_THREADS 	4	
 using namespace std;
-
+using namespace tbb;
 
 int nv, ed;
 list<int> FQ;
 pthread_mutex_t mux, update, mux_inner;
 pthread_mutex_t thd, update_inner;
 pthread_cond_t cond, inner;
+pthread_barrier_t barrier;
 int th_complete_inner;
-list<int> Q;
+//list<int> Q;
+
+concurrent_queue<int> Q;
+
 list<int> *adj;
 list<int> *th;
 int *visited;
@@ -31,55 +36,61 @@ int die = 1;
 struct timespec start, finish;
 double elapsed;
 int s = 1;
+fstream ff;
+
+
 
 void display(int dis)
 {
-//	cout << dis << "  ";
+//	ff << dis << "   ";
+	cout << dis << "  ";
 }
 
 void BFSserial(int s)
 {
-	Q.clear();
+	ff.open("ser.txt", ios::out);
+	list<int> Qc;
+	Qc.clear();
         for(int i=0;i<=nv;i++)
                 visited[i] = 0;
 
-        Q.push_back(s);
+        Qc.push_back(s);
         visited[s] = 1;
 
-        while(!Q.empty())
+        while(!Qc.empty())
         {
-                int u = Q.front();
+                int u = Qc.front();
                 display(u);
 		//cin.ignore();
-                Q.pop_front();
+                Qc.pop_front();
                 for(list<int>::iterator i = adj[u].begin(); i!=adj[u].end(); ++i)
                 {
                         int vv = *i;
                         if(visited[vv] == 0)
                         {
                                 visited[vv] = 1;
-                                Q.push_back(vv);
+                                Qc.push_back(vv);
                         }
                 }
         }
+	ff.close();
 }
 
 void BFSparallelOpenMP(int s)
 {
-	Q.clear();
+	ff.open("omp.txt", ios::out);
         for(int i=0;i<=nv;i++)
                 visited[i] = 0;
 
-        list<int> Q;
-        Q.push_back(s);
+        Q.push(s);
         visited[s] = 1;
         
 	list<int>::iterator j;
         while(!Q.empty())
         {
-                int u = Q.front();
+                int u;
+		Q.try_pop(u);
                 display(u);
-                Q.pop_front();
 		int size = adj[u].size();
 		j = adj[u].begin();
 		int vv;
@@ -87,27 +98,28 @@ void BFSparallelOpenMP(int s)
                 for(int k=0; k<size; k++)
                 {
 			
-                        vv = *j;
 			#pragma omp critical (iterate)
 			{
+                        	vv = *j;
 				++j;
 			}
 
 			if(visited[vv] == 0)
                         {
                        		visited[vv] = 1;
-				#pragma omp critical (update)
-					Q.push_back(vv);
+				Q.push(vv);
                        	}
 			
 
                 }
         }
+	ff.close();
 }
 
-void t_pool(void *x)
+void* t_pool(void *x)
 {
-        int id = (int)x;
+        int id = *((int*)x);
+
         while(die)
         {
                 pthread_mutex_lock(&mux);
@@ -129,18 +141,16 @@ void t_pool(void *x)
 				if(visited[vv] == 0)
 				{
 					visited[vv] = 1;
-					pthread_mutex_lock(&update);
-					Q.push_back(vv);
-					pthread_mutex_unlock(&update);
+					Q.push(vv);
 				}
 			}	
                 }
-
-                pthread_mutex_lock(&thd);
+		pthread_mutex_lock(&update);
                 th_complete++;
-                pthread_mutex_unlock(&thd);
+		pthread_mutex_unlock(&update);
         }
 	pthread_exit(NULL);
+	ff.close();
 
 }
 
@@ -153,10 +163,11 @@ void wakeSignal()
 
 void BFSparallelPthreads(int s)
 {
+	ff.open("pth.txt", ios::out);
 	Q.clear();
         for(int i = 0;i<=nv;i++)
                 visited[i] = 0;
-        Q.push_back(s);
+        Q.push(s);
         visited[s] = 1;
         int th_count = 0;
         while(1)
@@ -164,20 +175,21 @@ void BFSparallelPthreads(int s)
                 th_complete = 0;
                 while(!Q.empty())
                 {
-                        int temp = Q.front();
+                        int temp;
+			Q.try_pop(temp);
                         th[th_count%(NUM_THREADS-1)].push_back(temp);
-                        Q.pop_front();
                         display(temp);
                         th_count++;
                 }
                 th_count = th_count%(NUM_THREADS-1);
                 wakeSignal();
-                while(th_complete!=(NUM_THREADS-1));
+                while(th_complete!=(NUM_THREADS)-1);
                 if(Q.empty())
                 {
                         break;
                 }
         }
+	ff.close();
 
 }
 void takeInput(char *s)
@@ -225,7 +237,7 @@ void openMP()
         printf("OpenMP implementation time: %f\n", elapsed);
 }
 
-void serial()
+void ser()
 {
 	clock_gettime(CLOCK_REALTIME, &start);
         BFSserial(s);
@@ -248,7 +260,19 @@ void pthd()
 
 int main(int argc, char *argv[])
 {
-        pthread_t p[NUM_THREADS];
+        takeInput(argv[1]);
+        cout << "Perform BFS on a graph of " << nv << " vertices, awaiting proceed input";
+        cin.ignore();
+	int s = 1;	
+	visited = new int[nv+1];
+	
+	ser();
+	//sleep(1);
+	
+	//openMP();
+	//sleep(1);
+        
+	pthread_t p[NUM_THREADS];
         th = new list<int>[NUM_THREADS];
         pthread_mutex_init(&mux, NULL);
         pthread_mutex_init(&mux_inner, NULL);
@@ -260,23 +284,27 @@ int main(int argc, char *argv[])
 	pthread_attr_t attr;
 	pthread_attr_init(&attr);
 	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
+	pthread_barrier_init(&barrier, NULL, NUM_THREADS);
 
-        takeInput(argv[1]);
+	int arg[NUM_THREADS];	
         for(int i=0;i<NUM_THREADS;i++)
         {
-                pthread_create(&p[i], &attr, t_pool, (void *)i);
+		arg[i] = i;
+                pthread_create(&p[i], &attr, t_pool, (void *)(arg+i));
         }
 	
-        cout << "Perform BFS on a graph of " << nv << " vertices, awaiting proceed input";
-        cin.ignore();
-	int s = 1;	
-	visited = new int[nv+1];
 	
-	serial();
 	pthd();
-	openMP();
+	//sleep(1);
+
 
 	die = 0;
+	wakeSignal();
+        for(int i=0;i<NUM_THREADS;i++)
+        {
+                pthread_join(p[i], NULL);
+        }
+	
         return 0;
 }
 
