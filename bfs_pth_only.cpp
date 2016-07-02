@@ -37,7 +37,7 @@ fstream ff;
 void display(int dis)
 {
 //	ff << dis << "   "; //uncomment this if result is to be written to file
-	cout << dis << "  "; //uncomment this if result is to be written to monitor
+//	cout << dis << "  "; //uncomment this if result is to be written to monitor
 }
 
 
@@ -55,10 +55,10 @@ void* t_pool(void *x)
                         }
                 pthread_mutex_unlock(&mux);
                 
-		list<int>::iterator i;
-                for(i = th[id].begin(); i!=th[id].end(); ++i)
+                while(!th[id].empty())
                 {
-                        int ver = *i;
+                        int ver = th[id].front();
+			th[id].pop_front();
 			list<int>::iterator j;
 			for(j = adj[ver].begin(); j != adj[ver].end(); ++j)
 			{
