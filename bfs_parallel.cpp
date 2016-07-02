@@ -27,15 +27,15 @@ int th_complete_inner;
 //list<int> Q;
 
 concurrent_queue<int> Q;
-
 list<int> *adj;
-list<int> *th;
+list<int> *th1, *th2;
 int *visited;
 int th_complete;
 int die = 1;
 struct timespec start, finish;
 double elapsed;
 int s = 1;
+int choice = -1;
 fstream ff;
 
 
@@ -48,7 +48,6 @@ void display(int dis)
 
 void BFSserial(int s)
 {
-	ff.open("ser.txt", ios::out);
 	list<int> Qc;
 	Qc.clear();
         for(int i=0;i<=nv;i++)
@@ -73,12 +72,10 @@ void BFSserial(int s)
                         }
                 }
         }
-	ff.close();
 }
 
 void BFSparallelOpenMP(int s)
 {
-	ff.open("omp.txt", ios::out);
         for(int i=0;i<=nv;i++)
                 visited[i] = 0;
 
@@ -94,7 +91,7 @@ void BFSparallelOpenMP(int s)
 		int size = adj[u].size();
 		j = adj[u].begin();
 		int vv;
-		#pragma omp parallel for schedule(dynamic)
+		#pragma omp parallel for schedule(dynamic, 24)
                 for(int k=0; k<size; k++)
                 {
 			
@@ -113,7 +110,6 @@ void BFSparallelOpenMP(int s)
 
                 }
         }
-	ff.close();
 }
 
 void* t_pool(void *x)
@@ -131,26 +127,49 @@ void* t_pool(void *x)
                 pthread_mutex_unlock(&mux);
                 
 		list<int>::iterator i;
-                for(i = th[id].begin(); i!=th[id].end(); ++i)
-                {
-                        int ver = *i;
-			list<int>::iterator j;
-			for(j = adj[ver].begin(); j != adj[ver].end(); ++j)
-			{
-				int vv = *j;	
-				if(visited[vv] == 0)
+		if(choice == 1)
+		{
+                	while(!th1[id].empty())
+                	{
+                       	 	int ver = th1[id].front();
+				th1[id].pop_front();
+				list<int>::iterator j;
+				for(j = adj[ver].begin(); j != adj[ver].end(); ++j)
 				{
-					visited[vv] = 1;
-					Q.push(vv);
-				}
-			}	
-                }
+					int vv = *j;	
+					if(visited[vv] == 0)
+					{
+						visited[vv] = 1;
+						Q.push(vv);
+					}
+				}		
+                	}
+		}
+		else
+		{
+                	while(!th2[id].empty())
+                	{
+                       	 	int ver = th2[id].front();
+				th2[id].pop_front();
+				list<int>::iterator j;
+				for(j = adj[ver].begin(); j != adj[ver].end(); ++j)
+				{
+					int vv = *j;	
+					if(visited[vv] == 0)
+					{
+						visited[vv] = 1;
+						Q.push(vv);
+					}
+				}		
+                	}
+		}
+		
 		pthread_mutex_lock(&update);
                 th_complete++;
 		pthread_mutex_unlock(&update);
         }
+	
 	pthread_exit(NULL);
-	ff.close();
 
 }
 
@@ -163,7 +182,6 @@ void wakeSignal()
 
 void BFSparallelPthreads(int s)
 {
-	ff.open("pth.txt", ios::out);
 	Q.clear();
         for(int i = 0;i<=nv;i++)
                 visited[i] = 0;
@@ -172,24 +190,41 @@ void BFSparallelPthreads(int s)
         int th_count = 0;
         while(1)
         {
+                int temp;
                 th_complete = 0;
                 while(!Q.empty())
                 {
-                        int temp;
 			Q.try_pop(temp);
-                        th[th_count%(NUM_THREADS-1)].push_back(temp);
+			if(choice == 1)
+                        	th1[th_count%(NUM_THREADS-1)].push_back(temp);
+			else
+				th2[th_count%(NUM_THREADS-1)].push_back(temp);
                         display(temp);
                         th_count++;
                 }
                 th_count = th_count%(NUM_THREADS-1);
                 wakeSignal();
-                while(th_complete!=(NUM_THREADS)-1);
+                while(th_complete!=(NUM_THREADS)-1)
+		{
+			if(!Q.empty())
+			{
+				Q.try_pop(temp);
+				display(temp);
+				if(choice == -1)
+                        		th1[th_count%(NUM_THREADS-1)].push_back(temp);
+				else
+					th2[th_count%(NUM_THREADS-1)].push_back(temp);
+				th_count++;
+			}
+		}
+
+		choice *= -1;
+
                 if(Q.empty())
                 {
                         break;
                 }
         }
-	ff.close();
 
 }
 void takeInput(char *s)
@@ -273,7 +308,8 @@ int main(int argc, char *argv[])
 	//sleep(1);
         
 	pthread_t p[NUM_THREADS];
-        th = new list<int>[NUM_THREADS];
+        th1 = new list<int>[NUM_THREADS];
+        th2 = new list<int>[NUM_THREADS];
         pthread_mutex_init(&mux, NULL);
         pthread_mutex_init(&mux_inner, NULL);
         pthread_mutex_init(&update_inner, NULL);
